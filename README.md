@@ -1,7 +1,7 @@
 # binance-mini
 
 <p align="center">
-  <img src="docs/screenshot.png" width="360" alt="binance-mini 截图">
+  <img src="docs/icon.png" width="140" alt="binance-mini">
 </p>
 
 <p align="center">

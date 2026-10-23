@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="binance-mini">
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="#0d1117" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
+
+  <!-- 告警线 -->
+  <line x1="96" y1="252" x2="416" y2="252" stroke="#f0b90b" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 12" stroke-opacity="0.85"/>
+
+  <!-- 三根蜡烛, 中轴穿过告警线 -->
+  <g stroke-linecap="round">
+    <!-- 左: 小阳线 -->
+    <line x1="150" y1="232" x2="150" y2="392" stroke="#0ecb81" stroke-width="8" stroke-opacity="0.75"/>
+    <rect x="128" y="272" width="44" height="88" rx="6" fill="#0ecb81"/>
+
+    <!-- 中: 大阳线 -->
+    <line x1="256" y1="120" x2="256" y2="344" stroke="#0ecb81" stroke-width="8" stroke-opacity="0.75"/>
+    <rect x="232" y="160" width="48" height="132" rx="6" fill="#0ecb81"/>
+
+    <!-- 右: 阴线 -->
+    <line x1="362" y1="172" x2="362" y2="316" stroke="#f6465d" stroke-width="8" stroke-opacity="0.75"/>
+    <rect x="338" y="200" width="48" height="72" rx="6" fill="#f6465d"/>
+  </g>
+</svg>
