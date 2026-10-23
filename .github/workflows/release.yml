@@ -2,6 +2,8 @@ name: release
 
 on:
   push:
+    branches:
+      - master
     tags:
       - "v*"
   workflow_dispatch:
@@ -37,13 +39,14 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
-      # 手动触发只编译并留产物, 不打 release, 避免拿分支名当版本号.
-      - name: 编译 (手动触发)
-        if: github.event_name == 'workflow_dispatch'
+      # 非标签触发 (master push / 手动) 只编译并留产物, 不打 release,
+      # 避免拿分支名当版本号.
+      - name: 编译 (非标签触发)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: npm run tauri build
 
-      - name: 上传产物 (手动触发)
-        if: github.event_name == 'workflow_dispatch'
+      - name: 上传产物 (非标签触发)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
           name: binance-mini-windows
@@ -64,7 +67,7 @@ jobs:
           releaseBody: |
             Windows x64 (用户级安装, 无需管理员权限).
 
-            - `BinanceMini_0.1.0_x64-setup.exe` 安装包
+            - `BinanceMini_*_x64-setup.exe` 安装包
             - `binance-mini.exe` 免安装版
           # 直接发布, 不留草稿: 私有仓库自己用, 多一步"点发布"只会让 Releases 页面看着是空的.
           releaseDraft: false

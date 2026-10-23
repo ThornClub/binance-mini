@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="tauri">
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" alt="react">
   <img src="https://img.shields.io/badge/Rust-edition%202024-000000?logo=rust&logoColor=white" alt="rust">
-  <img src="https://img.shields.io/badge/version-0.1.0-f0b90b" alt="version">
+  <img src="https://img.shields.io/badge/version-0.2.0-f0b90b" alt="version">
   <img src="https://img.shields.io/badge/usage-read--only-0ecb81" alt="read only">
 </p>
 
@@ -43,7 +43,7 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `BinanceMini_0.1.0_x64-setup.exe` | 安装包, 用户级安装, **不需要管理员权限** |
+| `BinanceMini_0.2.0_x64-setup.exe` | 安装包, 用户级安装, **不需要管理员权限** |
 | `binance-mini.exe` | 免安装, 直接双击运行 |
 
 首次启动会弹出引导页填写 API Key / Secret. Key 只需要 **读取权限**, 不要开交易和提现权限.
@@ -82,7 +82,7 @@ npm run tauri build    # 出安装包
 
 ```
 src-tauri/target/release/binance-mini.exe
-src-tauri/target/release/bundle/nsis/BinanceMini_0.1.0_x64-setup.exe
+src-tauri/target/release/bundle/nsis/BinanceMini_0.2.0_x64-setup.exe
 ```
 
 质量门 (提交前跑):
@@ -97,8 +97,8 @@ cd src-tauri && cargo clippy -- -D warnings && cargo test
 推 `v*` 标签会触发 GitHub Actions, 在 `windows-latest` 上编译并创建 release, 自动挂上安装包和免安装 exe:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 也可以在 Actions 页面手动 `Run workflow`, 只编译并上传 artifact, 不发 release.
