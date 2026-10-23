@@ -62,5 +62,6 @@ jobs:
 
             - `BinanceMini_0.1.0_x64-setup.exe` 安装包
             - `binance-mini.exe` 免安装版
-          releaseDraft: true
+          # 直接发布, 不留草稿: 私有仓库自己用, 多一步"点发布"只会让 Releases 页面看着是空的.
+          releaseDraft: false
           prerelease: false
