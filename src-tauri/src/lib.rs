@@ -78,6 +78,7 @@ pub fn run() {
             commands::set_alerts,
             commands::add_alert,
             commands::remove_alert,
+            commands::set_risk,
             commands::toggle_window,
             commands::hide_window,
             commands::set_always_on_top,
@@ -106,10 +107,16 @@ fn load_settings(app: &tauri::AppHandle) {
         None => eprintln!("[init] 未加载到 API 凭证, 网络任务将空转"),
     }
     if let Ok(store) = app.store(commands::STORE_FILE) {
-        if let Some(v) = store.get(commands::STORE_ALERTS) {
-            if let Ok(alerts) = serde_json::from_value::<Vec<state::AlertLine>>(v.clone()) {
-                st.write(|s| s.alerts = alerts);
-            }
+        if let Some(v) = store.get(commands::STORE_ALERTS)
+            && let Ok(alerts) = serde_json::from_value::<Vec<state::AlertLine>>(v.clone())
+        {
+            st.write(|s| s.alerts = alerts);
+        }
+        if let Some(pct) = store
+            .get(commands::STORE_RISK)
+            .and_then(|v| v.get("liq_warn_pct").and_then(|x| x.as_f64()))
+        {
+            st.write(|s| s.risk.liq_warn_pct = pct.clamp(1.0, 50.0));
         }
     }
 }

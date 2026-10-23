@@ -2,15 +2,22 @@ pub mod alerts;
 pub mod tick;
 
 use crate::binance::{Creds, RestClient};
-use crate::state::{AccountView, AppState, Candle, MarketView, PositionView, Side, now_ms};
+use crate::state::{
+    AccountView, AppState, Candle, LiqRuntime, MarketView, PositionView, Side, now_ms,
+};
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 
 pub const EVT_SNAPSHOT: &str = "state://snapshot";
 
 /// 全量挂单诊断每次启动只跑一次, 避免把权重 40 的请求带进轮询.
 static ORDER_PROBE_DONE: AtomicBool = AtomicBool::new(false);
+
+pub const EVT_LIQ: &str = "state://liq";
+/// 同一仓位告警后的最短间隔, 和迟滞一起防轰炸.
+pub const LIQ_COOLDOWN_MS: i64 = 3 * 60 * 1000;
 
 pub fn emit(app: &AppHandle) {
     let state = app.state::<AppState>();
@@ -77,8 +84,80 @@ pub fn market_idle_ms(app: &AppHandle) -> i64 {
     now_ms() - last
 }
 
+/// 检查各仓位距强平的距离, 跌破阈值就通知 + 响声.
+///
+/// 判定用"从安全区跌进阈值"而不是"当前低于阈值": 价格贴着阈值来回磨时,
+/// 后者会每轮都弹一次. 距离回升到 warn + hysteresis 以上才重新武装.
+pub fn check_liq_risk(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let mut fired: Vec<(String, Side, f64)> = Vec::new();
+
+    state.write(|s| {
+        let warn = s.risk.liq_warn_pct;
+        let hysteresis = s.risk.hysteresis_pct;
+        let now = now_ms();
+        for (key, p) in s.positions.iter() {
+            let Some(d) = p.liq_distance_pct else { continue };
+            let rt = s.liq_rt.entry(key.clone()).or_insert(LiqRuntime {
+                armed: true,
+                last_fired_ms: 0,
+            });
+            let (fire, armed) = liq_decision(d, warn, hysteresis, rt.armed, rt.last_fired_ms, now);
+            rt.armed = armed;
+            if fire {
+                rt.last_fired_ms = now;
+                fired.push((key.0.clone(), key.1, d));
+            }
+        }
+    });
+
+    for (symbol, side, distance) in fired {
+        let dir = match side {
+            Side::Long => "多",
+            Side::Short => "空",
+            Side::Both => "",
+        };
+        let body = format!("{symbol} {dir} 距强平 {distance:.1}%");
+        eprintln!("[liq] {body}");
+        let _ = app
+            .notification()
+            .builder()
+            .title("强平距离告警")
+            .body(&body)
+            .show();
+        let _ = app.emit(
+            EVT_LIQ,
+            serde_json::json!({ "symbol": symbol, "side": side, "distance": distance }),
+        );
+    }
+}
+
+/// 强平告警的纯判定, 从 IO 里拆出来单独测.
+///
+/// 返回 (是否触发, 触发后是否应处于武装状态):
+/// - 距离回到 warn + hysteresis 以上才重新武装, 否则价格贴着阈值会反复弹
+/// - 冷却期内的重复跌破直接吞掉
+fn liq_decision(
+    distance: f64,
+    warn: f64,
+    hysteresis: f64,
+    armed: bool,
+    last_fired_ms: i64,
+    now: i64,
+) -> (bool, bool) {
+    if distance > warn + hysteresis {
+        return (false, true);
+    }
+    if !armed || distance > warn || now - last_fired_ms < LIQ_COOLDOWN_MS {
+        return (false, armed);
+    }
+    (true, false)
+}
+
 /// 按标记价本地重算未实现盈亏. 交易所不会在每次标记价变动时推送盈亏,
 /// 不自己算就会一直显示建仓那一刻的数字.
+// 行情快照字段多, 拆结构体反而要在三处调用点重复组装.
+#[allow(clippy::too_many_arguments)]
 fn build_view(
     symbol: &str,
     side: Side,
@@ -194,6 +273,8 @@ fn apply_position_updates(app: &AppHandle, list: &[Value]) {
         state.recompute_symbols();
         emit(app);
     }
+    // 私有流推来的仓位没带强平价, 但强平距离会随标记价变化, 每帧都要重新判一次.
+    check_liq_risk(app);
 }
 
 pub fn handle_market_event(app: &AppHandle, v: &Value) {
@@ -201,7 +282,7 @@ pub fn handle_market_event(app: &AppHandle, v: &Value) {
     {
         static FIRST_MARKET: std::sync::Once = std::sync::Once::new();
         FIRST_MARKET.call_once(|| {
-            eprintln!("[market] 首帧: {}", &stream.chars().take(40).collect::<String>())
+            eprintln!("[market] 首帧: {}", stream.chars().take(40).collect::<String>())
         });
     }
     let Some(data) = v.get("data") else { return };
@@ -382,6 +463,7 @@ pub async fn refresh_positions(
     if changed {
         state.recompute_symbols();
     }
+    check_liq_risk(app);
     Ok(())
 }
 
@@ -607,6 +689,7 @@ pub async fn refresh_orders(
             Err(e) => eprintln!("[orders] 全量挂单诊断失败: {e}"),
         }
         // 历史订单一并看一眼: 有条件委托但已是 CANCELED/FILLED 时, 这里能看出来.
+
         match rest.all_orders(symbol, 10, creds).await {
             Ok(h) => {
                 let list = h.as_array().cloned().unwrap_or_default();
@@ -629,8 +712,9 @@ pub async fn refresh_orders(
         }
     }
 
-    let mut tp: Option<f64> = None;
-    let mut sl: Option<f64> = None;
+    // 按订单的 positionSide 归位: 双向持仓下同一合约的 LONG 与 SHORT 是两条独立仓位,
+    // 不区分就会把多单的止损写到空单那一行上.
+    let mut per_side: Vec<(Side, Option<f64>, Option<f64>)> = Vec::new();
     for o in &arr {
         let kind = o.get("type").and_then(Value::as_str).unwrap_or("");
         let stop = o
@@ -639,21 +723,107 @@ pub async fn refresh_orders(
             .and_then(|x| x.parse::<f64>().ok())
             .filter(|p| *p > 0.0);
         let Some(stop) = stop else { continue };
-        if kind.starts_with("TAKE_PROFIT") {
-            tp = Some(stop);
-        } else if kind.starts_with("STOP") {
-            sl = Some(stop);
+        let is_tp = kind.starts_with("TAKE_PROFIT");
+        let is_sl = kind.starts_with("STOP");
+        if !is_tp && !is_sl {
+            continue;
+        }
+        let side = Side::from_position_side(
+            o.get("positionSide")
+                .and_then(Value::as_str)
+                .unwrap_or("BOTH"),
+        );
+        let slot = match per_side.iter_mut().find(|(s, _, _)| *s == side) {
+            Some(x) => x,
+            None => {
+                per_side.push((side, None, None));
+                per_side.last_mut().expect("刚插入")
+            }
+        };
+        if is_tp {
+            slot.1 = Some(stop);
+        } else {
+            slot.2 = Some(stop);
         }
     }
 
     let state = app.state::<AppState>();
     state.write(|s| {
         for (key, p) in s.positions.iter_mut() {
-            if key.0 == symbol {
-                p.tp_price = tp;
-                p.sl_price = sl;
+            if key.0 != symbol {
+                continue;
             }
+            // 单向模式 (BOTH) 的挂单不区分方向, 直接套到该合约唯一的那条仓位上.
+            let got = per_side
+                .iter()
+                .find(|(side, _, _)| *side == key.1 || *side == Side::Both);
+            p.tp_price = got.and_then(|x| x.1);
+            p.sl_price = got.and_then(|x| x.2);
         }
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn liq_distance_is_measured_from_mark_price() {
+        // 做多, 标记 100, 强平 80 -> 距离 20%
+        let p = build_view("BTCUSDT", Side::Long, 1.0, 100.0, 100.0, 10.0, Some(80.0), None);
+        assert!((p.liq_distance_pct.unwrap() - 20.0).abs() < 1e-9);
+        // 做空时强平价在上方, 距离同样取绝对值
+        let s = build_view("BTCUSDT", Side::Short, 1.0, 100.0, 100.0, 10.0, Some(120.0), None);
+        assert!((s.liq_distance_pct.unwrap() - 20.0).abs() < 1e-9);
+        // 没有强平价时不给距离, 前端显示 "--"
+        let none = build_view("BTCUSDT", Side::Long, 1.0, 100.0, 100.0, 10.0, None, None);
+        assert!(none.liq_distance_pct.is_none());
+    }
+
+    #[test]
+    fn upnl_follows_side_and_leverage() {
+        // 多: (110-100)*2 = 20; 保证金 100*2/10 = 20 -> 收益率 100%
+        let long = build_view("X", Side::Long, 2.0, 100.0, 110.0, 10.0, None, None);
+        assert!((long.upnl - 20.0).abs() < 1e-9);
+        assert!((long.upnl_pct - 100.0).abs() < 1e-9);
+        // 空: 方向相反
+        let short = build_view("X", Side::Short, 2.0, 100.0, 110.0, 10.0, None, None);
+        assert!((short.upnl + 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn liq_alert_fires_once_per_breach() {
+        let now = 1_000_000;
+        // 首次跌破 10% -> 触发, 并解除武装
+        let (fire, armed) = liq_decision(9.0, 10.0, 2.0, true, 0, now);
+        assert!(fire && !armed);
+        // 仍在阈值内且未武装 -> 不重复触发
+        let (fire, armed) = liq_decision(8.0, 10.0, 2.0, false, now, now + 1000);
+        assert!(!fire && !armed);
+    }
+
+    #[test]
+    fn liq_alert_rearms_only_above_hysteresis() {
+        // 回到 11% 还在迟滞带里, 不重新武装
+        let (fire, armed) = liq_decision(11.0, 10.0, 2.0, false, 0, 1);
+        assert!(!fire && !armed);
+        // 回到 12.1% 以上才重新武装
+        let (_, armed) = liq_decision(12.1, 10.0, 2.0, false, 0, 1);
+        assert!(armed);
+        // 重新武装后再跌破会再次触发 (冷却已过)
+        let (fire, _) = liq_decision(9.5, 10.0, 2.0, true, 0, LIQ_COOLDOWN_MS + 1);
+        assert!(fire);
+    }
+
+    #[test]
+    fn liq_alert_respects_cooldown() {
+        let now = 10_000_000;
+        // 刚报过, 冷却期内再跌破不重复弹
+        let (fire, _) = liq_decision(9.0, 10.0, 2.0, true, now, now + LIQ_COOLDOWN_MS - 1);
+        assert!(!fire);
+        // 冷却结束后允许再次触发
+        let (fire, _) = liq_decision(9.0, 10.0, 2.0, true, now, now + LIQ_COOLDOWN_MS);
+        assert!(fire);
+    }
 }

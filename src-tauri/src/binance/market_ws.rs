@@ -98,3 +98,20 @@ async fn run_once(
     engine::set_market_state(app, false, None);
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_lists_mark_price_and_kline_per_symbol() {
+        let url = build_url(&["BTCUSDT".to_string(), "ETHUSDT".to_string()]);
+        assert!(url.starts_with("wss://fstream.binance.com/stream?streams="));
+        // 币安的流名一律小写
+        assert!(url.contains("btcusdt@markPrice@1s"));
+        assert!(url.contains("btcusdt@kline_1m"));
+        assert!(url.contains("ethusdt@markPrice@1s"));
+        // 每个合约 3 个 @: symbol@markPrice@1s 与 symbol@kline_1m
+        assert_eq!(url.matches('@').count(), 6);
+    }
+}

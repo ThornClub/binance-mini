@@ -120,6 +120,32 @@ pub struct AlertRuntime {
     pub last_fired_ms: i64,
 }
 
+/// 强平距离告警设置. 距离按 (强平价 - 标记价) / 标记价 计算, 单位为百分比.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RiskSettings {
+    /// 距离低于这个值就告警.
+    pub liq_warn_pct: f64,
+    /// 告警后要回到 warn + 这个值之上才重新武装, 避免价格贴着阈值反复弹通知.
+    pub hysteresis_pct: f64,
+}
+
+impl Default for RiskSettings {
+    fn default() -> Self {
+        // 10% 是"该抬头看一眼"的位置; 1 倍杠杆下也够醒目, 不至于天天误报.
+        Self {
+            liq_warn_pct: 10.0,
+            hysteresis_pct: 2.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LiqRuntime {
+    /// false 表示已经报过, 等距离回升后重新武装.
+    pub armed: bool,
+    pub last_fired_ms: i64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Snapshot {
     pub positions: Vec<PositionView>,
@@ -127,6 +153,7 @@ pub struct Snapshot {
     pub account: Option<AccountView>,
     pub health: HealthView,
     pub stale: bool,
+    pub risk: RiskSettings,
 }
 
 pub struct Inner {
@@ -138,6 +165,9 @@ pub struct Inner {
     pub alert_rt: HashMap<String, AlertRuntime>,
     /// 前端当前聚焦的合约. K 线只刷它, 避免每轮给每个合约都拉一次.
     pub focus_symbol: Option<String>,
+    /// 强平距离告警设置与每个仓位的武装状态.
+    pub risk: RiskSettings,
+    pub liq_rt: HashMap<(String, Side), LiqRuntime>,
 }
 
 impl Default for Inner {
@@ -153,6 +183,8 @@ impl Default for Inner {
             alerts: Vec::new(),
             alert_rt: HashMap::new(),
             focus_symbol: None,
+            risk: RiskSettings::default(),
+            liq_rt: HashMap::new(),
         }
     }
 }
@@ -250,7 +282,36 @@ impl AppState {
                 account: s.account.clone(),
                 health: s.health.clone(),
                 stale: s.health.is_stale(),
+                risk: s.risk.clone(),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn position_side_maps_to_side() {
+        assert_eq!(Side::from_position_side("LONG"), Side::Long);
+        assert_eq!(Side::from_position_side("SHORT"), Side::Short);
+        // 单向模式与未知取值都落到 BOTH
+        assert_eq!(Side::from_position_side("BOTH"), Side::Both);
+        assert_eq!(Side::from_position_side(""), Side::Both);
+    }
+
+    #[test]
+    fn risk_defaults_are_sane() {
+        let r = RiskSettings::default();
+        assert!(r.liq_warn_pct > 0.0 && r.liq_warn_pct < 50.0);
+        assert!(r.hysteresis_pct > 0.0);
+    }
+
+    #[test]
+    fn fresh_state_has_no_positions() {
+        let snap = AppState::new().snapshot();
+        assert!(snap.positions.is_empty());
+        assert!(snap.account.is_none());
     }
 }

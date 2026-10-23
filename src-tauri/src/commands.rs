@@ -10,6 +10,7 @@ pub const STORE_FILE: &str = "settings.json";
 pub const STORE_ALERTS: &str = "alerts";
 pub const STORE_WINDOW: &str = "window";
 
+pub const STORE_RISK: &str = "risk";
 fn entry(user: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(KEYRING_SERVICE, user).map_err(|e| format!("系统凭据库不可用: {e}"))
 }
@@ -194,6 +195,27 @@ pub fn remove_alert(app: AppHandle, id: String) -> Result<Vec<AlertLine>, String
     alerts.retain(|a| a.id != id);
     set_alerts(app.clone(), alerts.clone())?;
     Ok(alerts)
+}
+
+/// 调整强平距离告警阈值. 单位百分比, 限制在 1% 到 50% 之间.
+#[tauri::command]
+pub fn set_risk(app: AppHandle, liq_warn_pct: f64) -> Result<(), String> {
+    if !liq_warn_pct.is_finite() {
+        return Err("阈值不是有效数字".to_string());
+    }
+    let pct = liq_warn_pct.clamp(1.0, 50.0);
+    let state = app.state::<AppState>();
+    state.write(|s| {
+        s.risk.liq_warn_pct = pct;
+        // 阈值变了必须清空武装状态, 否则调低阈值后已报过的仓位永远不再报.
+        s.liq_rt.clear();
+    });
+    if let Ok(store) = app.store(STORE_FILE) {
+        store.set(STORE_RISK, serde_json::json!({ "liq_warn_pct": pct }));
+        let _ = store.save();
+    }
+    engine::emit(&app);
+    Ok(())
 }
 
 #[tauri::command]

@@ -276,6 +276,12 @@ main::-webkit-scrollbar-thumb {
   letter-spacing: 0.2px;
 }
 
+/* 强平距离跌破阈值: 整行提示, 抬眼就能看到, 不用读数字 */
+.pos-liq.danger {
+  color: var(--down);
+  font-weight: 600;
+}
+
 .up {
   color: var(--up);
 }

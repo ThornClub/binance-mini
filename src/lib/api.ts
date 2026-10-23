@@ -39,11 +39,19 @@ export async function initBridge() {
     notify();
   });
 
+  // 强平距离告警走独立事件: 它比价格线更要紧, 前端可以单独处理 (响声 + 高亮).
+  await listen<{ symbol: string; side: string; distance: number }>("state://liq", (e) => {
+    playAlertSound();
+    lastLiqAlert = e.payload;
+    notify();
+  });
+
   current = await invoke<Snapshot>("get_snapshot");
   notify();
 }
 
 export let lastAlert: { symbol: string; price: number } | null = null;
+export let lastLiqAlert: { symbol: string; side: string; distance: number } | null = null;
 
 // 全程只用一个 AudioContext: 每次告警新建一个会累积到浏览器上限后静默失败.
 let audioCtx: AudioContext | null = null;
@@ -90,6 +98,7 @@ export const api = {
   addAlert: (symbol: string, price: number) =>
     invoke<AlertLine[]>("add_alert", { symbol, price }),
   removeAlert: (id: string) => invoke<AlertLine[]>("remove_alert", { id }),
+  setRisk: (liqWarnPct: number) => invoke<void>("set_risk", { liqWarnPct }),
   toggleWindow: () => invoke<void>("toggle_window"),
   hideWindow: () => invoke<void>("hide_window"),
   setAlwaysOnTop: (on: boolean) => invoke<void>("set_always_on_top", { on }),

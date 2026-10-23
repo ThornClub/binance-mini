@@ -52,6 +52,11 @@ export interface HealthView {
   started_at_ms: number;
   last_error: string | null;
 }
+/** 强平距离告警设置, 距离单位百分比. */
+export interface RiskSettings {
+  liq_warn_pct: number;
+  hysteresis_pct: number;
+}
 
 export interface Snapshot {
   positions: PositionView[];
@@ -59,6 +64,7 @@ export interface Snapshot {
   account: AccountView | null;
   health: HealthView;
   stale: boolean;
+  risk: RiskSettings;
 }
 
 export interface AlertLine {
@@ -80,4 +86,5 @@ export const EMPTY_SNAPSHOT: Snapshot = {
     last_error: null,
   },
   stale: false,
+  risk: { liq_warn_pct: 10, hysteresis_pct: 2 },
 };

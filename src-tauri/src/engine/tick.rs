@@ -75,24 +75,23 @@ pub fn spawn(app: AppHandle) {
             // 24 小时统计 10 秒一次就够, 不必跟着 1 秒节奏走.
             slow_counter = slow_counter.wrapping_add(1);
             // 启动头几轮先补齐 24h 数据, 之后回到 10 秒一次.
-            if slow_counter <= 3 || slow_counter % 10 == 1 {
-                if let Err(e) = engine::refresh_ticker(&app, &rest, &symbols).await {
-                    engine::set_error(&app, Some(e));
-                }
+            if (slow_counter <= 3 || slow_counter % 10 == 1)
+                && let Err(e) = engine::refresh_ticker(&app, &rest, &symbols).await
+            {
+                engine::set_error(&app, Some(e));
             }
             // 止盈止损挂在订单上, 10 秒拉一次就够.
-            if slow_counter % 10 == 2 {
-                if let Some(sym) = focus.as_deref() {
-                    if let Err(e) = engine::refresh_orders(&app, &rest, &creds, sym).await {
-                        engine::set_error(&app, Some(e));
-                    }
-                }
+            if slow_counter % 10 == 2
+                && let Some(sym) = focus.as_deref()
+                && let Err(e) = engine::refresh_orders(&app, &rest, &creds, sym).await
+            {
+                engine::set_error(&app, Some(e));
             }
             // 只有前端正在看的合约需要每轮刷最后一根 K 线.
-            if let Some(sym) = focus.as_deref() {
-                if let Err(e) = engine::refresh_last_candle(&app, &rest, sym).await {
-                    engine::set_error(&app, Some(e));
-                }
+            if let Some(sym) = focus.as_deref()
+                && let Err(e) = engine::refresh_last_candle(&app, &rest, sym).await
+            {
+                engine::set_error(&app, Some(e));
             }
 
             let pos_ok = match engine::refresh_positions(&app, &rest, &creds).await {
@@ -103,10 +102,10 @@ pub fn spawn(app: AppHandle) {
                 }
             };
             account_counter = account_counter.wrapping_add(1);
-            if account_counter % 12 == 1 {
-                if let Err(e) = engine::refresh_account(&app, &rest, &creds).await {
-                    engine::set_error(&app, Some(e));
-                }
+            if account_counter % 12 == 1
+                && let Err(e) = engine::refresh_account(&app, &rest, &creds).await
+            {
+                engine::set_error(&app, Some(e));
             }
 
             if pos_ok {

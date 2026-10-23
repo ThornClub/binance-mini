@@ -77,6 +77,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [chartInterval, setChartInterval] = useState<ChartInterval>("time");
   const [autoStart, setAutoStart] = useState(false);
+  // 输入框正在编辑的值; null 表示跟随后端快照里的阈值.
+  const [liqDraft, setLiqDraft] = useState<number | null>(null);
   const [alertInputOpen, setAlertInputOpen] = useState(false);
   const [checkMsg, setCheckMsg] = useState<string | null>(null);
   // 窗口不透明度, 存本地: 重启后保持上次的手感.
@@ -215,6 +217,30 @@ export default function App() {
             </label>
           </div>
           <div className="row">
+            <label className="alpha">
+              强平告警
+              <input
+                type="number"
+                min={1}
+                max={50}
+                step={1}
+                value={liqDraft ?? Math.round(snap.risk.liq_warn_pct)}
+                onChange={(e) => setLiqDraft(Number(e.target.value))}
+                onBlur={async () => {
+                  if (liqDraft == null) return;
+                  try {
+                    await api.setRisk(liqDraft);
+                    setCheckMsg(`强平距离低于 ${Math.round(liqDraft)}% 时通知`);
+                  } catch (e) {
+                    setCheckMsg(String(e));
+                  }
+                  setLiqDraft(null);
+                }}
+              />
+              <span className="val">%</span>
+            </label>
+          </div>
+          <div className="row">
             <button
               onClick={async () => {
                 const next = !autoStart;
@@ -289,7 +315,13 @@ export default function App() {
               </b>
               <span className={p.upnl_pct >= 0 ? "up" : "down"}>{fmt(p.upnl_pct, 1)}%</span>
             </div>
-            <div className="pos-liq">
+            <div
+              className={`pos-liq${
+                p.liq_distance_pct != null && p.liq_distance_pct <= snap.risk.liq_warn_pct
+                  ? " danger"
+                  : ""
+              }`}
+            >
               强平{" "}
               {p.liq_price
                 ? `${fmtPrice(p.liq_price)} · 距离 ${fmt(p.liq_distance_pct ?? 0, 1)}%`
