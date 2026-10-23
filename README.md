@@ -59,6 +59,8 @@ git push origin v0.1.0
 
 也可以在 Actions 页面手动 `Run workflow`, 只编译并上传产物, 不发 release.
 
+仓库需要开启写权限: Settings → Actions → General → Workflow permissions 选 **Read and write permissions**, 否则创建 release 会报 `Resource not accessible by integration`.
+
 ## 技术栈
 
 Tauri 2 + React 19 + TypeScript + lightweight-charts. 网络、签名、WebSocket 全在 Rust 侧, 前端只订阅状态快照.

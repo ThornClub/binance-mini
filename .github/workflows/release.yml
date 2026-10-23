@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+# 前置: 仓库 Settings -> Actions -> General -> Workflow permissions 必须是
+# "Read and write permissions". 设成 read 时创建 release 会报
+# Resource not accessible by integration, 编译本身仍然成功.
+
 env:
   RUST_BACKTRACE: 1
 
@@ -65,3 +69,11 @@ jobs:
           # 直接发布, 不留草稿: 私有仓库自己用, 多一步"点发布"只会让 Releases 页面看着是空的.
           releaseDraft: false
           prerelease: false
+
+      # tauri-action 只挂 bundle 产物; 免安装版单独补传, 保持 README 里的两个下载项一致.
+      - name: 附带免安装 exe
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" src-tauri/target/release/binance-mini.exe --clobber
