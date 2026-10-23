@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 本地 AI 工作流与任务记录, 不进仓库
+.trellis/
+.agents/
+.pi/
