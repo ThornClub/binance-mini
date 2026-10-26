@@ -1,6 +1,7 @@
 name: release
 
 on:
+  pull_request:
   push:
     branches:
       - master
@@ -9,21 +10,69 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-# 前置: 仓库 Settings -> Actions -> General -> Workflow permissions 必须是
-# "Read and write permissions". 设成 read 时创建 release 会报
-# Resource not accessible by integration, 编译本身仍然成功.
+  contents: read
 
 env:
   RUST_BACKTRACE: 1
+  CARGO_BUILD_JOBS: 1
 
 jobs:
-  build:
+  quality:
     runs-on: windows-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 前端测试
+        run: npm test
+
+      - name: TypeScript 检查
+        run: npx --no-install tsc --noEmit
+
+      - name: 前端构建
+        run: npm run build
+
+      - name: 会话桥接自检
+        run: node tests/session-bridge.mjs
+
+      - name: Rust 测试
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml -j 1
+
+      - name: Rust clippy
+        run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml -j 1 -- -D warnings
+
+  build:
+    needs: quality
+    # PR只运行只读门禁; 失败的门禁不得进入打包与发布.
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -39,14 +88,13 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
-      # 非标签触发 (master push / 手动) 只编译并留产物, 不打 release,
-      # 避免拿分支名当版本号.
-      - name: 编译 (非标签触发)
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: npm run tauri build
+      # master push和手动运行只留产物; 手动选择标签也不发布.
+      - name: 编译 (非标签推送)
+        if: ${{ github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run tauri build -- -- --locked -j 1
 
-      - name: 上传产物 (非标签触发)
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+      - name: 上传产物 (非标签推送)
+        if: ${{ github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
           name: binance-mini-windows
@@ -55,13 +103,14 @@ jobs:
             src-tauri/target/release/binance-mini.exe
             src-tauri/target/release/bundle/nsis/*.exe
 
-      # 推 v* 标签: 编译并创建 draft release, 附件自动挂上 exe 与安装包.
+      # v*标签推送在门禁通过后直接发布安装包, 不创建草稿.
       - name: 编译并发布
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          args: -- --locked -j 1
           tagName: ${{ github.ref_name }}
           releaseName: binance-mini ${{ github.ref_name }}
           releaseBody: |
@@ -69,14 +118,14 @@ jobs:
 
             - `BinanceMini_*_x64-setup.exe` 安装包
             - `binance-mini.exe` 免安装版
-          # 直接发布, 不留草稿: 私有仓库自己用, 多一步"点发布"只会让 Releases 页面看着是空的.
           releaseDraft: false
           prerelease: false
 
-      # tauri-action 只挂 bundle 产物; 免安装版单独补传, 保持 README 里的两个下载项一致.
+      # tauri-action只挂bundle产物; 免安装版单独补传.
       - name: 附带免安装 exe
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.ref_name }}" src-tauri/target/release/binance-mini.exe --clobber
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release upload "$RELEASE_TAG" src-tauri/target/release/binance-mini.exe --clobber

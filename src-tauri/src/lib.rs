@@ -1,13 +1,15 @@
 mod binance;
+mod chart;
 mod commands;
 mod engine;
+mod freshness;
 mod state;
 
 use state::AppState;
+use std::sync::Arc;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
-use tauri_plugin_store::StoreExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,6 +22,7 @@ pub fn run() {
                 let _ = w.show();
                 let _ = w.unminimize();
                 let _ = w.set_focus();
+                app.state::<AppState>().risk_wake.notify_one();
             }
         }))
         .plugin(tauri_plugin_opener::init())
@@ -39,6 +42,8 @@ pub fn run() {
                 .build(),
         )
         .manage(AppState::new())
+        // 所有命令和后台任务共享同一进程冷却窗口, 账户切换不重建客户端.
+        .manage(Arc::new(binance::RestClient::new()))
         .setup(|app| {
             let handle = app.handle().clone();
             commands::restore_geometry(&handle);
@@ -51,13 +56,18 @@ pub fn run() {
 
             binance::user_ws::spawn(handle.clone());
             binance::market_ws::spawn(handle.clone());
+            binance::kline_ws::spawn(handle.clone());
             engine::tick::spawn(handle.clone());
+            engine::supplement::spawn(handle.clone());
             Ok(())
         })
         .on_window_event(|window, event| {
             match event {
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
                     commands::save_geometry(window.app_handle());
+                }
+                WindowEvent::Focused(true) => {
+                    window.app_handle().state::<AppState>().risk_wake.notify_one();
                 }
                 WindowEvent::CloseRequested { api, .. } => {
                     // 关闭按钮只隐藏, 真正退出走托盘菜单, 避免上班时误关.
@@ -84,6 +94,7 @@ pub fn run() {
             commands::set_always_on_top,
             commands::quit_app,
             commands::set_focus,
+            commands::clear_focus,
             commands::autostart_enabled,
             commands::set_autostart,
         ])
@@ -101,22 +112,19 @@ fn load_settings(app: &tauri::AppHandle) {
     // 启动诊断: 没加载到凭证时所有网络任务都会静默空转, 必须能从日志看出来.
     match commands::load_creds() {
         Some(creds) => {
-            eprintln!("[init] 已加载 API 凭证 (key 前 4 位 {})", &creds.key[..4.min(creds.key.len())]);
+            eprintln!("[init] 已加载 API 凭证");
             st.set_creds(Some(creds));
         }
         None => eprintln!("[init] 未加载到 API 凭证, 网络任务将空转"),
     }
-    if let Ok(store) = app.store(commands::STORE_FILE) {
+    if let Ok(store) = commands::settings_store(app) {
         if let Some(v) = store.get(commands::STORE_ALERTS)
             && let Ok(alerts) = serde_json::from_value::<Vec<state::AlertLine>>(v.clone())
         {
             st.write(|s| s.alerts = alerts);
         }
-        if let Some(pct) = store
-            .get(commands::STORE_RISK)
-            .and_then(|v| v.get("liq_warn_pct").and_then(|x| x.as_f64()))
-        {
-            st.write(|s| s.risk.liq_warn_pct = pct.clamp(1.0, 50.0));
+        if let Some(value) = store.get(commands::STORE_RISK) {
+            commands::apply_saved_risk(&st, &value);
         }
     }
 }

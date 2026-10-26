@@ -40,6 +40,9 @@ futures-util = { version = "0.3.34", default-features = false, features = ["sink
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "system-proxy"] }
 keyring = { version = "4.2.0", default-features = false, features = ["v1", "windows-native-keyring-store"] }
 
+[dev-dependencies]
+# 假时钟与 loopback 服务只用于会话/网络回归测试.
+tokio = { version = "1.54.1", features = ["test-util", "net", "io-util"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
