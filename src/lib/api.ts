@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AlertLine, ChartHistory, ChartToken, KlineInterval, RiskSettings, Snapshot } from "./types";
+import type { AlertLine, ChartHistory, ChartToken, ClosePlan, CloseResult, KlineInterval, RiskSettings, Side, Snapshot } from "./types";
 import { EMPTY_SNAPSHOT } from "./types";
 import { chartFeed } from "./chart-session";
 
@@ -94,6 +94,9 @@ export const api = {
   addAlert: (symbol: string, price: number) => invoke<AlertLine[]>("add_alert", { symbol, price }),
   removeAlert: (id: string) => invoke<AlertLine[]>("remove_alert", { id }),
   setRisk: (liqWarnPct: number) => invoke<RiskSettings>("set_risk", { liqWarnPct }),
+  // 平仓是真实写操作: 预览只读校验, 发单由后端重新读持仓后再决定数量.
+  closePreview: (symbol: string, side: Side, qty: number) => invoke<ClosePlan>("close_preview", { symbol, side, qty }),
+  closePosition: (symbol: string, side: Side, qty: number) => invoke<CloseResult>("close_position", { symbol, side, qty }),
   toggleWindow: () => invoke<void>("toggle_window"),
   hideWindow: () => invoke<void>("hide_window"),
   setAlwaysOnTop: (on: boolean) => invoke<void>("set_always_on_top", { on }),

@@ -113,6 +113,8 @@ pub struct Inner {
     pub alert_rt: HashMap<String, AlertRuntime>,
     pub risk: RiskSettings,
     pub liq_rt: HashMap<(String, Side), LiqRuntime>,
+    /// 平仓用的合约过滤规则, 带拉取时刻; 过期或缺失必须重新拉取, 不回退旧值.
+    pub filters: HashMap<String, (i64, crate::trade::Filters)>,
 }
 impl Default for Inner {
     fn default() -> Self {
@@ -122,7 +124,7 @@ impl Default for Inner {
             health: HealthView { started_at_ms: now_ms(), ..Default::default() },
             position_freshness: Freshness::new(60_000 + REQUEST_BUDGET_MS),
             account_freshness: Freshness::new(ACCOUNT_INTERVAL_MS + REQUEST_BUDGET_MS), chart: ChartView::default(),
-            alerts: Vec::new(), alert_rt: HashMap::new(), risk: RiskSettings::default(), liq_rt: HashMap::new(),
+            alerts: Vec::new(), alert_rt: HashMap::new(), risk: RiskSettings::default(), liq_rt: HashMap::new(), filters: HashMap::new(),
         }
     }
 }
@@ -194,6 +196,15 @@ impl AppState {
     pub fn subscribe_symbols(&self) -> watch::Receiver<MarketSubscription> { self.symbols_tx.subscribe() }
     pub fn subscribe_creds(&self) -> watch::Receiver<AccountSession> { self.creds_tx.subscribe() }
     pub fn subscribe_chart(&self) -> watch::Receiver<Option<ChartToken>> { self.chart_tx.subscribe() }
+    /// 只读过滤规则缓存; 不走 changed(), 避免规则拉取触发订阅与快照变更.
+    pub fn cached_filters(&self, symbol: &str, now: i64, ttl_ms: i64) -> Option<crate::trade::Filters> {
+        let guard = self.inner.read();
+        let (at, filters) = guard.filters.get(symbol)?;
+        (now - *at <= ttl_ms).then(|| filters.clone())
+    }
+    pub fn store_filters(&self, symbol: &str, filters: crate::trade::Filters, now: i64) {
+        self.inner.write().filters.insert(symbol.to_string(), (now, filters));
+    }
     pub fn begin_credential_op(&self) -> (u64, watch::Receiver<u64>) {
         let mut op = self.credential_op.lock(); *op += 1;
         self.credential_op_tx.send_replace(*op); (*op, self.credential_op_tx.subscribe())

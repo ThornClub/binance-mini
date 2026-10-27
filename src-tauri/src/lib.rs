@@ -4,6 +4,7 @@ mod commands;
 mod engine;
 mod freshness;
 mod state;
+mod trade;
 
 use state::AppState;
 use std::sync::Arc;
@@ -95,6 +96,8 @@ pub fn run() {
             commands::quit_app,
             commands::set_focus,
             commands::clear_focus,
+            trade::close_preview,
+            trade::close_position,
             commands::autostart_enabled,
             commands::set_autostart,
         ])

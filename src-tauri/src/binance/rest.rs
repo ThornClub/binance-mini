@@ -49,6 +49,17 @@ pub struct RestClient {
     test_base: Option<String>,
 }
 
+#[cfg(test)]
+impl RestClient {
+    /// 只给本机 loopback 测试用: 指向假服务并禁用代理, 不触碰真实交易所.
+    pub(crate) fn with_test_base(mut self, base: impl Into<String>) -> Self {
+        self.test_base = Some(base.into());
+        self.http = reqwest::Client::builder().no_proxy()
+            .timeout(std::time::Duration::from_secs(2)).build().expect("测试客户端");
+        self
+    }
+}
+
 impl RestClient {
     pub fn new() -> Self {
         let http = reqwest::Client::builder()
@@ -173,6 +184,21 @@ impl RestClient {
 
     pub async fn position_risk(&self, c: &Creds) -> Result<Value, String> {
         self.get("/fapi/v2/positionRisk", &[], Some(c)).await
+    }
+
+    /// 平仓需要的合约过滤规则. 单合约查询, 权重低.
+    pub async fn exchange_info_symbol(&self, symbol: &str) -> Result<Value, String> {
+        self.get("/fapi/v1/exchangeInfo", &[("symbol", symbol.to_string())], None).await
+    }
+
+    /// 市价单写操作. 与其他请求共用冷却与请求预算.
+    pub async fn new_market_order(&self, c: &Creds, params: &[(&str, String)]) -> Result<Value, String> {
+        self.request(Method::POST, "/fapi/v1/order", params, Some(c), true).await
+    }
+
+    /// 用本地 clientOrderId 查单, 用于发单结果未知时判定真实状态.
+    pub async fn query_order(&self, c: &Creds, symbol: &str, client_id: &str) -> Result<Value, String> {
+        self.get("/fapi/v1/order", &[("symbol", symbol.to_string()), ("origClientOrderId", client_id.to_string())], Some(c)).await
     }
 
     pub async fn account(&self, c: &Creds) -> Result<Value, String> {
@@ -307,6 +333,12 @@ fn format_error(status: u16, body: &str) -> String {
         (451, _) => "交易所拒绝当前地区或 IP, 请切换代理节点或出口 IP 后重试",
         (403, _) => "访问被拒绝, 多为地区/IP 限制或代理拦截, 请切换代理节点或出口 IP",
         (_, -2015) => "认证或读取被拒绝, 请核查 API Key, IP 白名单, 合约账户状态与读取权限; 不要为排错开启交易或提现权限",
+        (_, -2019) => "保证金不足, 交易所拒绝了该订单",
+        (_, -2022) => "reduceOnly 被拒, 多为持仓模式或方向不符; 请核对单向/双向模式与持仓方向",
+        (_, -4164) => "订单名义值低于交易所最小要求",
+        (_, -1111) => "数量精度超过合约步长要求",
+        (_, -4131) => "对手价保护拒绝该订单, 请稍后重试",
+        (_, -4046) => "无需变更仓位, 当前持仓已满足该订单",
         (_, -1021) => "本机时间与服务器偏差过大",
         (_, -2014) => "API Key 格式错误",
         (_, -1102) => "参数缺失",

@@ -98,6 +98,25 @@ export interface Snapshot {
   chart: ChartView;
   risk: RiskSettings;
 }
+/** 平仓预览: 数量已按交易所步长量化, 与真正发单使用同一份计算. */
+export interface ClosePlan {
+  symbol: string;
+  qty: number;
+  qty_text: string;
+  notional: number;
+  order_side: string;
+  position_side: string;
+  reduce_only: boolean;
+  max_qty: number;
+  mark_price: number;
+}
+export interface CloseResult {
+  order_id: number;
+  status: string;
+  filled_qty: number;
+  avg_price: number;
+  qty_text: string;
+}
 export interface AlertLine {
   id: string;
   symbol: string;

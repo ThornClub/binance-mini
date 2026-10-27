@@ -863,3 +863,118 @@ footer {
   right: 0;
   cursor: nwse-resize;
 }
+
+/* 平仓入口与确认面板: 真实写操作, 视觉上必须与只读信息分层 */
+.pos-close-open {
+  margin-top: 2px;
+  padding: 1px 6px;
+  border: 1px solid rgb(246 70 93 / 0.5);
+  border-radius: 4px;
+  background: rgb(246 70 93 / 0.12);
+  color: var(--down);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.pos-close-open:hover:not(:disabled) {
+  background: rgb(246 70 93 / 0.22);
+}
+
+.pos-close-open:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pos-close-panel {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgb(246 70 93 / 0.35);
+  border-radius: 6px;
+  background: rgb(10 13 19 / 0.92);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: default;
+}
+
+.pos-close-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.pos-close-max {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.pos-close-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.pos-close-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-close-confirm,
+.pos-close-cancel {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pos-close-confirm {
+  border: 1px solid rgb(246 70 93 / 0.6);
+  background: rgb(246 70 93 / 0.2);
+  color: var(--down);
+}
+
+.pos-close-confirm:disabled,
+.pos-close-cancel:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pos-close-cancel {
+  border: 1px solid rgb(255 255 255 / 0.14);
+  background: transparent;
+  color: var(--text);
+}
+
+.pos-close-hint {
+  font-size: 10px;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-close-msg {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-top: 1px solid rgb(255 255 255 / 0.06);
+  color: var(--up);
+  font-size: 11px;
+}
+
+.pos-close-msg button {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}

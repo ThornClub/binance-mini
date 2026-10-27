@@ -4,6 +4,7 @@ import { api, getSnapshot, initBridge, subscribeSnapshot } from "./lib/api";
 import type { AlertLine, PositionView } from "./lib/types";
 import { freshnessLabel, isStale, useNow } from "./lib/freshness";
 import SetupWizard from "./components/SetupWizard";
+import PositionClose from "./components/PositionClose";
 import MiniKline, { type ChartInterval, type ChartLine } from "./components/MiniKline";
 import "./App.css";
 import "./components/chart-state.css";
@@ -92,6 +93,9 @@ export default function App() {
   const [liqDraft, setLiqDraft] = useState<string | null>(null);
   const [liqConfirmed, setLiqConfirmed] = useState(snap.risk.liq_warn_pct);
   const [riskSaving, setRiskSaving] = useState(false);
+  // 只允许一个仓位行处于平仓面板展开状态, 避免多行同时确认.
+  const [closeKey, setCloseKey] = useState<string | null>(null);
+  const [closeMsg, setCloseMsg] = useState<string | null>(null);
   const [riskError, setRiskError] = useState<string | null>(null);
   const [checkMsg, setCheckMsg] = useState<string | null>(null);
   const [credentialError, setCredentialError] = useState<string | null>(null);
@@ -253,12 +257,25 @@ export default function App() {
           <div className="pos-l"><div className="pos-sym"><b>{p.symbol.replace("USDT", "")}</b><span className={`badge ${sideLabel(p) === "多" ? "long" : "short"}`}>{sideLabel(p)}<em>{p.leverage}x</em></span></div>
             <div className={`pos-px${stale ? " data-stale" : ""}`} title={freshnessLabel(source, now)}><span>{fmtPrice(p.entry_price)}</span><i>→</i><span className="mark">{fmtPrice(p.mark_price)}{stale ? " (过期)" : ""}</span></div>
           </div>
-          <div className={`pos-r${stale || riskStale ? " data-stale" : ""}`}><b className={p.upnl >= 0 ? "up" : "down"}>{p.upnl >= 0 ? "+" : ""}{fmt(p.upnl, 2)}</b><span className={p.upnl_pct >= 0 ? "up" : "down"}>{fmt(p.upnl_pct, 1)}%</span></div>
+          <div className={`pos-r${stale || riskStale ? " data-stale" : ""}`}><b className={p.upnl >= 0 ? "up" : "down"}>{p.upnl >= 0 ? "+" : ""}{fmt(p.upnl, 2)}</b><span className={p.upnl_pct >= 0 ? "up" : "down"}>{fmt(p.upnl_pct, 1)}%</span>
+            {/* 平仓入口只在风险数据可信时开放, 避免用过期数量下真实订单. */}
+            <button className="pos-close-open" disabled={riskStale}
+              title={riskStale ? "风险数据过期, 先等持仓刷新" : "市价平仓"}
+              onClick={(event) => {
+                event.stopPropagation();
+                setCloseMsg(null);
+                setCloseKey(closeKey === positionKey(p) ? null : positionKey(p));
+              }}>平仓</button>
+          </div>
           <div title={freshnessLabel(snap.position_freshness, now)} className={`pos-liq${riskStale ? " data-stale" : ""}${p.liq_distance_pct != null && p.liq_distance_pct <= snap.risk.liq_warn_pct ? " danger" : ""}`}>
             强平{riskStale ? "(风险数据过期)" : ""} {p.liq_price ? `${fmtPrice(p.liq_price)} · 距离 ${fmt(p.liq_distance_pct ?? 0, 1)}%` : "--"}
           </div>
+          {closeKey === positionKey(p) && <PositionClose key={`${snap.account_generation}|${positionKey(p)}`} position={p}
+            stale={riskStale} onCancel={() => setCloseKey(null)}
+            onDone={(message) => { setCloseKey(null); setCloseMsg(message); }} />}
         </div>;
       })}
+      {closeMsg && <div className="pos-close-msg" role="status">平仓: {closeMsg}<button onClick={() => setCloseMsg(null)} aria-label="关闭平仓提示">✕</button></div>}
     </main>
     <footer>{focused ? <>
       <div className="chart-head"><span className="chart-title"><span className="sym">{focused}</span>
