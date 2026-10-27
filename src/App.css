@@ -314,7 +314,7 @@ footer {
   display: flex;
   flex-direction: column;
   min-height: 96px;
-  overflow-y: auto;
+  overflow-y: hidden;
   overflow-x: hidden;
   border-top: 1px solid var(--line);
 }
