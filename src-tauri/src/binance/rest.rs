@@ -302,11 +302,14 @@ pub fn sign(secret: &str, query: &str) -> Result<String, String> {
 fn format_error(status: u16, body: &str) -> String {
     let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     let code = v.get("code").and_then(Value::as_i64).unwrap_or(0);
-    let hint = match code {
-        -2015 => "认证或读取被拒绝, 请核查 API Key, IP 白名单, 合约账户状态与读取权限; 不要为排错开启交易或提现权限",
-        -1021 => "本机时间与服务器偏差过大",
-        -2014 => "API Key 格式错误",
-        -1102 => "参数缺失",
+    // 451/403 由交易所按 IP/地区拒绝, 与应用权限和重试次数无关, 必须指引换出口 IP.
+    let hint = match (status, code) {
+        (451, _) => "交易所拒绝当前地区或 IP, 请切换代理节点或出口 IP 后重试",
+        (403, _) => "访问被拒绝, 多为地区/IP 限制或代理拦截, 请切换代理节点或出口 IP",
+        (_, -2015) => "认证或读取被拒绝, 请核查 API Key, IP 白名单, 合约账户状态与读取权限; 不要为排错开启交易或提现权限",
+        (_, -1021) => "本机时间与服务器偏差过大",
+        (_, -2014) => "API Key 格式错误",
+        (_, -1102) => "参数缺失",
         _ => "交易所请求失败",
     };
     format!("HTTP {} (code {}) {}", status, code, hint)
@@ -368,6 +371,21 @@ mod tests {
         assert!(s.contains("读取权限"));
         assert!(s.contains("不要为排错开启交易或提现权限"));
         assert!(!s.contains("Invalid API-key"));
+    }
+    #[test]
+    fn region_block_codes_point_at_exit_ip_without_echoing_server_msg() {
+        for status in [451u16, 403] {
+            let s = format_error(status, r#"{"code":0,"msg":"Service unavailable in your region: 1.2.3.4"}"#);
+            assert!(s.contains(&format!("HTTP {status}")), "{s}");
+            assert!(s.contains("地区"), "{s}");
+            assert!(s.contains("IP"), "{s}");
+            assert!(s.contains("代理节点或出口 IP"), "{s}");
+            assert!(!s.contains("Service unavailable"), "不得回显服务端 msg");
+            assert!(!s.contains("1.2.3.4"), "不得回显服务端回显的地址");
+        }
+        // 451 即使携带业务 code 也必须优先按地区拒绝解释, 不能退化成笼统失败.
+        let s = format_error(451, r#"{"code":-1003,"msg":"x"}"#);
+        assert!(s.contains("地区"), "{s}");
     }
 
     #[test]

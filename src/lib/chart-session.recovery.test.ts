@@ -71,4 +71,55 @@ describe("图表恢复请求所有权", () => {
       expect(pending[2].epoch).toBe(2);
     } finally { session.dispose(); }
   });
+  it("从未收到快照时历史失败仍按回退周期自动重试并恢复", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(100_000);
+    // 不向chartFeed投递任何视图: 会话没有后端刷新周期可用, 只能走回退周期.
+    const token: ChartToken = { account_generation: ++account, chart_generation: 1, symbol: "N", interval: "1m" };
+    const pending: Array<{ epoch: number; request: number; resolve: (v: ChartHistory) => void; reject: (e: unknown) => void }> = [];
+    const api = {
+      setFocus: vi.fn(async () => token), clearFocus: vi.fn(async () => {}),
+      klines: vi.fn((_token: ChartToken, epoch: number, request: number) =>
+        new Promise<ChartHistory>((resolve, reject) => pending.push({ epoch, request, resolve, reject }))),
+    };
+    const session = new ChartSession(api, "N", "1m");
+    try {
+      await session.start();
+      expect(session.get().view).toBeNull();
+      pending[0].reject("HTTP 451 (code 0) 交易所拒绝当前地区或 IP");
+      await Promise.resolve();
+      expect(session.get().loading).toBe(false);
+      expect(session.get().error).toContain("451");
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(api.klines).toHaveBeenCalledTimes(2);
+      pending[1].resolve({ token, reconnect_epoch: 0, request_id: pending[1].request,
+        rows: [{ t: 60000, o: 100, h: 110, l: 90, c: 105, trades: 1, closed: false }] });
+      await Promise.resolve();
+      expect(session.get().rows).toHaveLength(1);
+      expect(session.get().loading).toBe(false);
+      expect(session.get().error).toBeNull();
+    } finally { session.dispose(); }
+  });
+  it("在途请求超过预算卡死时由新请求作废, 迟到结果不能覆盖", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(100_000);
+    const { token, pending, api, view, session } = setup();
+    try {
+      await session.start();
+      await vi.advanceTimersByTimeAsync(1_000);
+      // 预算内的手动重试仍共用同一请求.
+      session.retry();
+      expect(api.klines).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(16_000);
+      expect(api.klines).toHaveBeenCalledTimes(2);
+      session.retry();
+      pending[1].resolve({ token, reconnect_epoch: 1, request_id: pending[1].request,
+        rows: [{ t: 120000, o: 100, h: 110, l: 90, c: 106, trades: 1, closed: false }] });
+      await Promise.resolve();
+      pending[0].resolve({ token, reconnect_epoch: 1, request_id: pending[0].request,
+        rows: [{ t: 60000, o: 100, h: 110, l: 90, c: 105, trades: 1, closed: false }] });
+      await Promise.resolve();
+      expect(session.get().rows.map((r) => r.t)).toEqual([120000]);
+      expect(session.get().loading).toBe(false);
+      expect(view.connected).toBe(false);
+    } finally { session.dispose(); }
+  });
 });

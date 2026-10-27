@@ -1,6 +1,10 @@
 import type { Candle, ChartHistory, ChartToken, ChartView, KlineInterval } from "./types";
 
 export const BAR_LIMIT: Record<KlineInterval, number> = { "1m": 180, "15m": 120, "1h": 120, "1d": 90 };
+/** 未收到快照时没有后端刷新周期可用, 用固定回退周期继续重试. */
+export const FALLBACK_REFRESH_MS = 5_000;
+/** 超过该时长仍在途的请求视为卡死, 由新请求作废, 不让自动重试和按钮永久失效. */
+export const STUCK_REQUEST_MS = 15_000;
 export function sameToken(a: ChartToken | null, b: ChartToken | null): boolean {
   return a != null && b != null && a.account_generation === b.account_generation &&
     a.chart_generation === b.chart_generation && a.symbol === b.symbol && a.interval === b.interval;
@@ -78,6 +82,7 @@ export class ChartSession {
   private epoch = -1;
   private timer: ReturnType<typeof setInterval> | null = null;
   private nextRetry = 0;
+  private loadingSince = 0;
   private inFlightEpoch: number | null = null;
   private lastHistoryMs = 0;
   private unsubscribe: (() => void) | null = null;
@@ -94,6 +99,7 @@ export class ChartSession {
     if (this.starting || this.disposed) return;
     this.starting = true;
     this.publish({ loading: true, error: null });
+    this.loadingSince = Date.now();
     try {
       const token = await this.api.setFocus(this.symbol, this.interval);
       if (this.disposed) { await this.api.clearFocus(token); return; }
@@ -104,11 +110,15 @@ export class ChartSession {
       this.timer = setInterval(() => {
         const view = this.value.view;
         const now = Date.now();
-        if (!view || this.value.loading || now < this.nextRetry) return;
+        if (now < this.nextRetry) return;
+        // 卡死请求(含REST 12秒预算)必须能被新请求作废, 否则按钮与重试时钟一起永久失效.
+        const stuck = this.value.loading && now - this.loadingSince >= STUCK_REQUEST_MS;
+        if (this.value.loading && !stuck) return;
+        const interval = view?.refresh_interval_ms ?? FALLBACK_REFRESH_MS;
         // 活跃WS不全量刷新; 备用周期独立于包含请求预算的数据超龄期限.
-        const live = view.connected && view.last_live_ms > 0 && now - view.last_live_ms <= view.refresh_interval_ms;
-        if ((!live || view.freshness.error != null || this.value.error != null) &&
-          now - this.lastHistoryMs >= view.refresh_interval_ms) void this.reload();
+        const live = view != null && view.connected && view.last_live_ms > 0 && now - view.last_live_ms <= interval;
+        if ((!live || view?.freshness.error != null || this.value.error != null) && now - this.lastHistoryMs >= interval)
+          void this.reload(stuck);
       }, 1000);
     } catch (error) {
       if (!this.disposed) this.publish({ loading: false, error: String(error) });
@@ -121,15 +131,21 @@ export class ChartSession {
     this.publish({ view: feed.view, rows: mergeCandles(this.value.rows, feed.rows, BAR_LIMIT[this.interval]) });
     if (nextEpoch !== this.epoch) { this.epoch = nextEpoch; void this.reload(); }
   };
-  retry = () => { if (!this.token) void this.start(); else if (!this.value.loading) void this.reload(); };
-  private async reload() {
+  /** 手动重试: 在途请求仍在预算内时共用同一请求, 超过预算(卡死)才强制新请求. */
+  retry = () => {
+    if (!this.token) { void this.start(); return; }
+    void this.reload(this.value.loading && Date.now() - this.loadingSince >= STUCK_REQUEST_MS);
+  };
+  /** force 用于手动重试与卡死回收: 同一 epoch 也允许发起新请求. */
+  private async reload(force = false) {
     const token = this.token;
     if (!token || this.disposed) return;
     const epoch = this.epoch;
-    if (this.inFlightEpoch === epoch) return;
+    if (!force && this.inFlightEpoch === epoch) return;
     const request = ++this.request;
     this.inFlightEpoch = epoch;
     this.publish({ loading: true, error: null });
+    this.loadingSince = Date.now();
     try {
       const result = await this.api.klines(token, epoch, request, BAR_LIMIT[this.interval]);
       if (this.disposed || request !== this.request || epoch !== this.epoch) return;
