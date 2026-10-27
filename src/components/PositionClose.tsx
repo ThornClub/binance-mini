@@ -27,9 +27,17 @@ export default function PositionClose({ position, stale, onDone, onCancel }: Pro
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sendingRef = useRef(false);
+  const panelRef = useRef<HTMLDivElement>(null);
   const key = `${position.symbol}|${position.side}`;
   const keyRef = useRef(key);
   keyRef.current = key;
+
+  // 面板在可滚动的持仓区里, 展开后必须自己滚进可视范围, 否则底部队会被裁掉.
+  useEffect(() => {
+    const panel = panelRef.current;
+    // jsdom 与部分旧 WebView 没有 scrollIntoView, 缺失时只影响滚动, 不影响面板.
+    if (panel && typeof panel.scrollIntoView === "function") panel.scrollIntoView({ block: "nearest" });
+  }, []);
 
   const qty = Number(draft);
   useEffect(() => {
@@ -65,7 +73,7 @@ export default function PositionClose({ position, stale, onDone, onCancel }: Pro
     }
   }
 
-  return <div className="pos-close-panel" role="group" aria-label={`平仓 ${position.symbol}`}
+  return <div className="pos-close-panel" role="group" aria-label={`平仓 ${position.symbol}`} ref={panelRef}
     onClick={(event) => event.stopPropagation()}>
     <div className="pos-close-head">
       <span>市价平仓 {position.symbol}</span>

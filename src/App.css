@@ -889,6 +889,7 @@ footer {
 .pos-close-panel {
   grid-column: 1 / -1;
   margin-top: 6px;
+  scroll-margin: 8px;
   padding: 6px 8px;
   border: 1px solid rgb(246 70 93 / 0.35);
   border-radius: 6px;
@@ -917,9 +918,10 @@ footer {
   align-items: center;
 }
 
+/* 数量是短数字, 不给它撑满整行, 否则确认按钮会被挤到边缘 */
 .pos-close-row input {
-  flex: 1;
-  min-width: 0;
+  flex: 0 0 88px;
+  width: 88px;
   padding: 2px 6px;
   border: 1px solid rgb(255 255 255 / 0.14);
   border-radius: 4px;
@@ -927,6 +929,12 @@ footer {
   color: var(--text);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline-offset: 1px;
+}
+
+.pos-close-row input:focus {
+  border-color: var(--accent);
 }
 
 .pos-close-confirm,
@@ -957,6 +965,7 @@ footer {
 
 .pos-close-hint {
   font-size: 10px;
+  line-height: 1.5;
   opacity: 0.75;
   font-variant-numeric: tabular-nums;
 }
