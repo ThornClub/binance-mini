@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" alt="tauri">
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" alt="react">
   <img src="https://img.shields.io/badge/Rust-edition%202024-000000?logo=rust&logoColor=white" alt="rust">
-  <img src="https://img.shields.io/badge/version-0.2.0-f0b90b" alt="version">
+  <img src="https://img.shields.io/badge/version-0.3.0-f0b90b" alt="version">
   <img src="https://img.shields.io/badge/usage-read--only-0ecb81" alt="read only">
 </p>
 
@@ -43,7 +43,7 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `BinanceMini_0.2.0_x64-setup.exe` | 安装包, 用户级安装, **不需要管理员权限** |
+| `BinanceMini_0.3.0_x64-setup.exe` | 安装包, 用户级安装, **不需要管理员权限** |
 | `binance-mini.exe` | 免安装, 直接双击运行 |
 
 首次启动会弹出引导页填写 API Key / Secret. 确认 **已启用读取、未启用交易、未启用提现**. 建议配置可信出口 IP 白名单, 不要求关闭白名单. 接口自检只证明本次持仓读取成功, 不能完整审计 Key 的交易、提现等权限; 请在交易所侧核查. 读取被拒绝时先核查 Key、出口 IP、合约账户状态和读取权限, 不要为排错开启交易或提现权限.
